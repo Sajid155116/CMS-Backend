@@ -3,8 +3,8 @@ services:
     name: cms-backend
     runtime: node
     plan: free
-    buildCommand: npm install --production && npm run build
-    startCommand: NODE_OPTIONS='--max-old-space-size=460' npm run start:prod
+    buildCommand: npm install && npm run build && npm prune --production
+    startCommand: node --max-old-space-size=450 dist/main.js
     envVars:
       - key: PORT
         value: 10000
