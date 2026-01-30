@@ -25,11 +25,13 @@ import { StorageService } from './storage.service';
 import { CreateItemDto } from './dto/create-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { QueryItemsDto } from './dto/query-items.dto';
+import { AuthGuard } from '../common/guards/auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Items')
 @Controller('items')
-// @UseGuards(AuthGuard) // Uncomment when auth is ready
-// @ApiBearerAuth()
+@UseGuards(AuthGuard)
+@ApiBearerAuth()
 export class ItemsController {
   constructor(
     private readonly itemsService: ItemsService,
@@ -39,36 +41,28 @@ export class ItemsController {
   @Post()
   @ApiOperation({ summary: 'Create a new item (file or folder)' })
   @ApiResponse({ status: 201, description: 'Item created successfully' })
-  create(@Body() createItemDto: CreateItemDto) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  create(@Body() createItemDto: CreateItemDto, @CurrentUser() userId: string) {
     return this.itemsService.create(createItemDto, userId);
   }
 
   @Get()
   @ApiOperation({ summary: 'Get all items with optional filters' })
   @ApiResponse({ status: 200, description: 'Items retrieved successfully' })
-  findAll(@Query() query: QueryItemsDto) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  findAll(@Query() query: QueryItemsDto, @CurrentUser() userId: string) {
     return this.itemsService.findAll(query, userId);
   }
 
   @Get('tree')
   @ApiOperation({ summary: 'Get complete folder tree structure' })
   @ApiResponse({ status: 200, description: 'Tree structure retrieved successfully' })
-  getTree() {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  getTree(@CurrentUser() userId: string) {
     return this.itemsService.getTree(userId);
   }
 
   @Get('storage-usage')
   @ApiOperation({ summary: 'Get storage usage statistics' })
   @ApiResponse({ status: 200, description: 'Storage usage retrieved successfully' })
-  getStorageUsage() {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  getStorageUsage(@CurrentUser() userId: string) {
     return this.itemsService.getStorageUsage(userId);
   }
 
@@ -76,36 +70,28 @@ export class ItemsController {
   @ApiOperation({ summary: 'Get a single item by ID' })
   @ApiResponse({ status: 200, description: 'Item retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Item not found' })
-  findOne(@Param('id') id: string) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  findOne(@Param('id') id: string, @CurrentUser() userId: string) {
     return this.itemsService.findOne(id, userId);
   }
 
   @Get(':id/children')
   @ApiOperation({ summary: 'Get item with its children' })
   @ApiResponse({ status: 200, description: 'Item with children retrieved successfully' })
-  findWithChildren(@Param('id') id: string) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  findWithChildren(@Param('id') id: string, @CurrentUser() userId: string) {
     return this.itemsService.findWithChildren(id, userId);
   }
 
   @Get(':id/breadcrumbs')
   @ApiOperation({ summary: 'Get breadcrumb trail for an item' })
   @ApiResponse({ status: 200, description: 'Breadcrumbs retrieved successfully' })
-  getBreadcrumbs(@Param('id') id: string) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  getBreadcrumbs(@Param('id') id: string, @CurrentUser() userId: string) {
     return this.itemsService.getBreadcrumbs(id, userId);
   }
 
   @Get(':id/download-url')
   @ApiOperation({ summary: 'Get presigned download URL for a file' })
   @ApiResponse({ status: 200, description: 'Download URL generated successfully' })
-  async getDownloadUrl(@Param('id') id: string) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  async getDownloadUrl(@Param('id') id: string, @CurrentUser() userId: string) {
     const item = await this.itemsService.findOne(id, userId);
     
     if (!item.storageKey) {
@@ -121,10 +107,8 @@ export class ItemsController {
   @ApiResponse({ status: 200, description: 'Returns presigned URL and metadata' })
   async getUploadUrl(
     @Body() body: { filename: string; contentType: string; size: number; parentId?: string },
+    @CurrentUser() userId: string,
   ) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
-
     // Generate unique storage key
     const timestamp = Date.now();
     const storageKey = `${userId}/${timestamp}-${body.filename}`;
@@ -153,10 +137,8 @@ export class ItemsController {
       mimeType: string;
       parentId?: string;
     },
+    @CurrentUser() userId: string,
   ) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
-
     // Verify file exists in R2
     const exists = await this.storageService.fileExists(body.storageKey);
     if (!exists) {
@@ -228,10 +210,8 @@ export class ItemsController {
       mimeType: string;
       parentId?: string;
     },
+    @CurrentUser() userId: string,
   ) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
-
     // Complete multipart upload in R2
     await this.storageService.completeMultipartUpload(
       body.storageKey,
@@ -271,10 +251,8 @@ export class ItemsController {
   @ApiResponse({ status: 200, description: 'Upload URL generated successfully' })
   async generateUploadUrl(
     @Body() body: { filename: string; contentType: string; parentId?: string },
+    @CurrentUser() userId: string,
   ) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
-    
     // Generate unique storage key
     const timestamp = Date.now();
     const storageKey = `${userId}/${timestamp}-${body.filename}`;
@@ -295,9 +273,7 @@ export class ItemsController {
   @ApiOperation({ summary: 'Update an item (rename or move)' })
   @ApiResponse({ status: 200, description: 'Item updated successfully' })
   @ApiResponse({ status: 404, description: 'Item not found' })
-  update(@Param('id') id: string, @Body() updateItemDto: UpdateItemDto) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  update(@Param('id') id: string, @Body() updateItemDto: UpdateItemDto, @CurrentUser() userId: string) {
     return this.itemsService.update(id, updateItemDto, userId);
   }
 
@@ -305,9 +281,7 @@ export class ItemsController {
   @ApiOperation({ summary: 'Delete an item (and its children if folder)' })
   @ApiResponse({ status: 200, description: 'Item deleted successfully' })
   @ApiResponse({ status: 404, description: 'Item not found' })
-  async remove(@Param('id') id: string) {
-    // TODO: Get userId from authenticated user
-    const userId = 'demo-user-id';
+  async remove(@Param('id') id: string, @CurrentUser() userId: string) {
     const item = await this.itemsService.findOne(id, userId);
 
     // Delete from storage if it's a file

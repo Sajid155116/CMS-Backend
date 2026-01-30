@@ -4,39 +4,41 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import axios from 'axios';
+import { ConfigService } from '@nestjs/config';
+import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
+  constructor(private configService: ConfigService) {}
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token = this.extractTokenFromHeader(request);
 
     if (!token) {
-      throw new UnauthorizedException('No token provided');
+      throw new UnauthorizedException('No authorization token provided');
     }
 
     try {
-      // Verify token with Next.js backend
-      // Try both cookie names (NextAuth v5 uses authjs.session-token)
-      const response = await axios.get(
-        `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/auth/token/verify`,
-        {
-          headers: {
-            Cookie: `authjs.session-token=${token}`,
-          },
-        }
-      );
-
-      if (response.data.valid) {
-        request.user = response.data.user;
-        return true;
+      // Verify JWT token
+      const secret = this.configService.get<string>('NEXTAUTH_SECRET');
+      if (!secret) {
+        throw new Error('NEXTAUTH_SECRET not configured');
       }
 
-      throw new UnauthorizedException('Invalid token');
+      const decoded = jwt.verify(token, secret) as any;
+      
+      // Attach user info to request
+      request.user = {
+        id: decoded.sub || decoded.id,
+        email: decoded.email,
+        name: decoded.name,
+      };
+
+      return true;
     } catch (error) {
-      console.error('Auth guard error:', error.response?.data || error.message);
-      throw new UnauthorizedException('Token verification failed');
+      console.error('Auth guard error:', error.message);
+      throw new UnauthorizedException('Invalid or expired token');
     }
   }
 

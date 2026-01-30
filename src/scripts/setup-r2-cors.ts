@@ -25,8 +25,8 @@ async function setupR2Cors() {
         AllowedOrigins: [
           'http://localhost:3000',
           'http://localhost:4000',
-          // Add your production domains here when deploying
-          // 'https://your-production-domain.com'
+          'https://cms-frontend-tau-khaki.vercel.app',
+          'https://cms-backend-production-c843.up.railway.app'
         ],
         AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
         AllowedHeaders: ['*'],
