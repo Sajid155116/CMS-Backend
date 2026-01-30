@@ -4,12 +4,11 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as jwt from 'jsonwebtoken';
+import { JwtService } from '../services/jwt.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private configService: ConfigService) {}
+  constructor(private jwtService: JwtService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -20,19 +19,14 @@ export class AuthGuard implements CanActivate {
     }
 
     try {
-      // Verify JWT token
-      const secret = this.configService.get<string>('NEXTAUTH_SECRET');
-      if (!secret) {
-        throw new Error('NEXTAUTH_SECRET not configured');
-      }
-
-      const decoded = jwt.verify(token, secret) as any;
+      // Verify access token
+      const payload = this.jwtService.verifyAccessToken(token);
       
       // Attach user info to request
       request.user = {
-        id: decoded.sub || decoded.id,
-        email: decoded.email,
-        name: decoded.name,
+        id: payload.sub,
+        email: payload.email,
+        name: payload.name,
       };
 
       return true;

@@ -4,14 +4,18 @@ import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from './schemas/user.schema';
 import { UserPreference, UserPreferenceDocument } from './schemas/user-preference.schema';
+import { RefreshToken, RefreshTokenDocument } from './schemas/refresh-token.schema';
 import { CreateUserDto, LoginDto } from './dto/auth.dto';
 import { UpdatePreferenceDto } from './dto/preference.dto';
+import { JwtService, TokenPair } from '../common/services/jwt.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(UserPreference.name) private preferenceModel: Model<UserPreferenceDocument>,
+    @InjectModel(RefreshToken.name) private refreshTokenModel: Model<RefreshTokenDocument>,
+    private jwtService: JwtService,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<UserDocument> {
@@ -52,6 +56,95 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  async login(loginDto: LoginDto, ip?: string): Promise<TokenPair & { user: any }> {
+    const user = await this.validateUser(loginDto);
+    const userId = user._id.toString();
+
+    // Generate tokens
+    const tokens = this.jwtService.generateTokenPair(userId, user.email, user.name);
+
+    // Store refresh token in database
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+    await this.refreshTokenModel.create({
+      userId,
+      token: tokens.refreshToken,
+      expiresAt,
+      createdByIp: ip,
+    });
+
+    return {
+      ...tokens,
+      user: {
+        id: userId,
+        email: user.email,
+        name: user.name,
+      },
+    };
+  }
+
+  async refreshAccessToken(refreshToken: string): Promise<TokenPair> {
+    // Verify refresh token
+    const payload = this.jwtService.verifyRefreshToken(refreshToken);
+
+    // Check if token exists in database and is not revoked
+    const storedToken = await this.refreshTokenModel.findOne({
+      token: refreshToken,
+      revoked: false,
+    });
+
+    if (!storedToken) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (storedToken.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    // Get user details
+    const user = await this.userModel.findById(payload.sub);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    // Generate new token pair
+    const tokens = this.jwtService.generateTokenPair(user._id.toString(), user.email, user.name);
+
+    // Store new refresh token
+    const expiresAtNew = new Date();
+    expiresAtNew.setDate(expiresAtNew.getDate() + 7);
+
+    await this.refreshTokenModel.create({
+      userId: user._id.toString(),
+      token: tokens.refreshToken,
+      expiresAt: expiresAtNew,
+    });
+
+    // Revoke old refresh token
+    storedToken.revoked = true;
+    storedToken.revokedAt = new Date();
+    await storedToken.save();
+
+    return tokens;
+  }
+
+  async revokeRefreshToken(refreshToken: string): Promise<void> {
+    const token = await this.refreshTokenModel.findOne({ token: refreshToken });
+    if (token) {
+      token.revoked = true;
+      token.revokedAt = new Date();
+      await token.save();
+    }
+  }
+
+  async revokeAllUserTokens(userId: string): Promise<void> {
+    await this.refreshTokenModel.updateMany(
+      { userId, revoked: false },
+      { revoked: true, revokedAt: new Date() }
+    );
   }
 
   async findOne(id: string): Promise<UserDocument> {

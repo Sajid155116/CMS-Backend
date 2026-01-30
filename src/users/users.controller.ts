@@ -1,8 +1,9 @@
-import { Controller, Post, Get, Patch, Body, HttpCode, HttpStatus, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, HttpCode, HttpStatus, Req, UseGuards, Ip } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto, LoginDto } from './dto/auth.dto';
 import { UpdatePreferenceDto } from './dto/preference.dto';
 import { AuthGuard } from '../common/guards/auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @Controller('users')
 export class UsersController {
@@ -21,27 +22,34 @@ export class UsersController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto) {
-    const user = await this.usersService.validateUser(loginDto);
-    return {
-      id: user._id.toString(),
-      email: user.email,
-      name: user.name,
-    };
+  async login(@Body() loginDto: LoginDto, @Ip() ip: string) {
+    return this.usersService.login(loginDto, ip);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body('refreshToken') refreshToken: string) {
+    return this.usersService.refreshAccessToken(refreshToken);
+  }
+
+  @Post('logout')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async logout(@Body('refreshToken') refreshToken: string) {
+    await this.usersService.revokeRefreshToken(refreshToken);
+    return { message: 'Logged out successfully' };
   }
 
   @Get('preferences')
   @UseGuards(AuthGuard)
-  async getPreferences(@Req() request: any) {
-    const userId = request.user.id;
+  async getPreferences(@CurrentUser() userId: string) {
     return this.usersService.getPreferences(userId);
   }
 
   @Patch('preferences')
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.OK)
-  async updatePreferences(@Req() request: any, @Body() updateDto: UpdatePreferenceDto) {
-    const userId = request.user.id;
+  async updatePreferences(@CurrentUser() userId: string, @Body() updateDto: UpdatePreferenceDto) {
     return this.usersService.updatePreferences(userId, updateDto);
   }
 }

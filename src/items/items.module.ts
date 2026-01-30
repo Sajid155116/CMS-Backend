@@ -4,10 +4,12 @@ import { ItemsController } from './items.controller';
 import { ItemsService } from './items.service';
 import { StorageService } from './storage.service';
 import { Item, ItemSchema } from './schemas/item.schema';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Item.name, schema: ItemSchema }]),
+    UsersModule,
   ],
   controllers: [ItemsController],
   providers: [ItemsService, StorageService],
