@@ -8,7 +8,7 @@ export class User {
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email: string;
 
-  @Prop({ required: true })
+  @Prop({ required: false }) // Not required for OAuth users
   password: string;
 
   @Prop({ required: true, trim: true })
@@ -16,6 +16,18 @@ export class User {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  @Prop({ default: false })
+  emailVerified: boolean;
+
+  @Prop({ type: String, enum: ['local', 'google'], default: 'local' })
+  authProvider: string;
+
+  @Prop()
+  googleId: string;
+
+  @Prop()
+  avatar: string;
 
   @Prop()
   createdAt: Date;
