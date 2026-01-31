@@ -13,14 +13,14 @@ export class UsersController {
 
   @Post('signup')
   @HttpCode(HttpStatus.CREATED)
-  async signup(@Body() createUserDto: CreateUserDto) {
+  async signup(@Body() createUserDto: CreateUserDto, @Ip() ip: string) {
     const user = await this.usersService.create(createUserDto);
-    return {
-      id: user._id.toString(),
-      email: user.email,
-      name: user.name,
-      message: 'Account created successfully. Please check your email to verify your account.',
-    };
+    
+    // Auto-login after signup
+    const userId = user._id.toString();
+    const tokens = await this.usersService.login({ email: user.email, password: createUserDto.password }, ip);
+    
+    return tokens;
   }
 
   @Post('login')

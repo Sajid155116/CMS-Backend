@@ -39,13 +39,10 @@ export class UsersService {
       password: hashedPassword,
       name: createUserDto.name,
       authProvider: 'local',
-      emailVerified: false,
+      emailVerified: true, // Skip email verification for now
     });
 
     await user.save();
-
-    // Generate verification token
-    await this.sendVerificationEmail(user);
 
     return user;
   }
@@ -69,10 +66,6 @@ export class UsersService {
 
     if (!user.isActive) {
       throw new UnauthorizedException('Account is disabled');
-    }
-
-    if (!user.emailVerified) {
-      throw new UnauthorizedException('Please verify your email address. Check your inbox for the verification link.');
     }
 
     return user;
