@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { ItemsService } from './items.service';
 import { StorageService } from './storage.service';
+import { SummarizationService } from './summarization.service';
 import { CreateItemDto } from './dto/create-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { QueryItemsDto } from './dto/query-items.dto';
@@ -36,6 +37,7 @@ export class ItemsController {
   constructor(
     private readonly itemsService: ItemsService,
     private readonly storageService: StorageService,
+    private readonly summarizationService: SummarizationService,
   ) {}
 
   @Post()
@@ -100,6 +102,32 @@ export class ItemsController {
 
     const url = await this.storageService.generateDownloadUrl(item.storageKey);
     return { url, expiresIn: 3600 };
+  }
+
+  @Post(':id/summarize')
+  @ApiOperation({ summary: 'Summarize a PDF or text file using the external RAG service' })
+  @ApiResponse({ status: 200, description: 'Summary generated successfully' })
+  async summarizeFile(@Param('id') id: string, @CurrentUser() userId: string) {
+    const item = await this.itemsService.findOne(id, userId);
+
+    if (!item.storageKey) {
+      throw new Error('File has no storage key');
+    }
+
+    const buffer = await this.storageService.getFileBuffer(item.storageKey);
+    const result = await this.summarizationService.summarizeFile({
+      buffer,
+      filename: item.name,
+      mimeType: item.mimeType,
+    });
+
+    return {
+      itemId: item._id.toString(),
+      filename: item.name,
+      summary: result.answer,
+      sources: result.sources,
+      summarizerDocumentId: result.documentId,
+    };
   }
 
   @Post('upload-url')

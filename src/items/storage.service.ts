@@ -130,6 +130,39 @@ export class StorageService {
     };
   }
 
+  async getFileBuffer(key: string): Promise<Buffer> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+    });
+
+    const response = await this.s3Client.send(command);
+    const body = response.Body as any;
+
+    if (!body) {
+      throw new Error('File body is empty');
+    }
+
+    if (typeof body.transformToByteArray === 'function') {
+      const bytes: Uint8Array = await body.transformToByteArray();
+      return Buffer.from(bytes);
+    }
+
+    if (typeof body[Symbol.asyncIterator] === 'function') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of body as AsyncIterable<Uint8Array | Buffer | string>) {
+        if (typeof chunk === 'string') {
+          chunks.push(Buffer.from(chunk));
+        } else {
+          chunks.push(Buffer.from(chunk));
+        }
+      }
+      return Buffer.concat(chunks);
+    }
+
+    throw new Error('Unsupported file stream format from storage provider');
+  }
+
   /**
    * Initiate multipart upload
    */
