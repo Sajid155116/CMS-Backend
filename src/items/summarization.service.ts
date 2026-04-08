@@ -3,16 +3,14 @@ import {
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
+import { LlmService } from '../summarize/services/llmService';
 
 @Injectable()
 export class SummarizationService {
-  private readonly summarizerBaseUrl: string;
+  private readonly maxInputChars = 12000;
 
-  constructor(private readonly configService: ConfigService) {
-    this.summarizerBaseUrl =
-      this.configService.get<string>('SUMMARIZER_API_URL') || 'http://localhost:8000';
-  }
+  constructor(private readonly llmService: LlmService) {}
 
   async summarizeFile(input: {
     buffer: Buffer;
@@ -24,88 +22,64 @@ export class SummarizationService {
       throw new BadRequestException('Only PDF and text-based files are supported for summarization.');
     }
 
-    const fileBytes = input.buffer.buffer.slice(
-      input.buffer.byteOffset,
-      input.buffer.byteOffset + input.buffer.byteLength,
-    ) as ArrayBuffer;
-
-    const formData = new FormData();
-    formData.append('file', new Blob([fileBytes], { type: mimeType }), input.filename);
-
-    const uploadData = await this.postForm('/api/documents/upload', formData);
-    const documentId = uploadData.document_id as string;
-
-    if (!documentId) {
-      throw new InternalServerErrorException('Summarizer upload failed: missing document_id');
+    const extractedText = await this.extractText(input.buffer, mimeType, input.filename);
+    if (!extractedText.trim()) {
+      return {
+        answer:
+          'This file could not be parsed into text. Please upload a searchable PDF or a text-based file.',
+        sources: [`type:${mimeType}`, 'parse:unavailable'],
+        documentId: createHash('sha256')
+          .update(`${input.filename}:${input.buffer.byteLength}`)
+          .digest('hex'),
+      };
     }
 
-    await this.postJson('/api/documents/process', {
-      document_id: documentId,
-    });
+    const llmResult = await this.llmService.generateSummary(
+      extractedText.slice(0, this.maxInputChars),
+      'bullet',
+    );
 
-    const summaryData = await this.postJson('/api/documents/summarize', {
-      document_id: documentId,
-    });
+    const answerSections: string[] = [llmResult.summary];
+
+    if (llmResult.keyPoints.length > 0) {
+      answerSections.push(
+        ['Key points:', ...llmResult.keyPoints.map((point) => `- ${point}`)].join('\n'),
+      );
+    }
+
+    if (llmResult.actionItems.length > 0) {
+      answerSections.push(
+        ['Action items:', ...llmResult.actionItems.map((item) => `- ${item}`)].join('\n'),
+      );
+    }
+
+    const documentId = createHash('sha256')
+      .update(`${input.filename}:${input.buffer.byteLength}`)
+      .digest('hex');
 
     return {
-      answer: (summaryData.answer as string) || '',
-      sources: (summaryData.sources as string[]) || [],
+      answer: answerSections.join('\n\n').trim(),
+      sources: [
+        `type:${mimeType}`,
+        `model:${process.env.LLM_MODEL || 'unknown'}`,
+      ],
       documentId,
     };
   }
 
-  private async postForm(path: string, body: FormData): Promise<Record<string, unknown>> {
-    let response: Response;
+  private async extractText(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
+    if (mimeType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
+      try {
+        return await this.extractPdfText(buffer);
+      } catch {
+        return '';
+      }
+    }
+
     try {
-      response = await fetch(`${this.summarizerBaseUrl}${path}`, {
-        method: 'POST',
-        body,
-      });
+      return buffer.toString('utf-8').trim();
     } catch {
-      throw new InternalServerErrorException(
-        `Could not connect to summarizer service at ${this.summarizerBaseUrl}`,
-      );
-    }
-
-    const data = await this.parseJson(response);
-    if (!response.ok) {
-      const detail = (data?.detail as string) || 'Summarizer form request failed';
-      throw new BadRequestException(detail);
-    }
-
-    return data || {};
-  }
-
-  private async postJson(path: string, payload: object): Promise<Record<string, unknown>> {
-    let response: Response;
-    try {
-      response = await fetch(`${this.summarizerBaseUrl}${path}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch {
-      throw new InternalServerErrorException(
-        `Could not connect to summarizer service at ${this.summarizerBaseUrl}`,
-      );
-    }
-
-    const data = await this.parseJson(response);
-    if (!response.ok) {
-      const detail = (data?.detail as string) || 'Summarizer JSON request failed';
-      throw new BadRequestException(detail);
-    }
-
-    return data || {};
-  }
-
-  private async parseJson(response: Response): Promise<Record<string, unknown> | null> {
-    try {
-      return (await response.json()) as Record<string, unknown>;
-    } catch {
-      return null;
+      throw new InternalServerErrorException('Failed to decode file content for summarization.');
     }
   }
 
@@ -123,6 +97,52 @@ export class SummarizationService {
     return ['.txt', '.md', '.markdown', '.rst', '.log', '.readme'].some((ext) =>
       lowerName.endsWith(ext),
     );
+  }
+
+  private async extractPdfText(buffer: Buffer): Promise<string> {
+    this.ensurePdfGlobals();
+
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+    });
+
+    const document = await loadingTask.promise;
+    const pageTexts: string[] = [];
+
+    for (let pageIndex = 1; pageIndex <= document.numPages; pageIndex += 1) {
+      const page = await document.getPage(pageIndex);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => (typeof item.str === 'string' ? item.str : ''))
+        .join(' ')
+        .trim();
+
+      if (pageText) {
+        pageTexts.push(pageText);
+      }
+    }
+
+    await document.destroy();
+    return pageTexts.join('\n\n').trim();
+  }
+
+  private ensurePdfGlobals(): void {
+    const globalScope = globalThis as any;
+
+    if (typeof globalScope.DOMMatrix === 'undefined') {
+      globalScope.DOMMatrix = class DOMMatrix {};
+    }
+
+    if (typeof globalScope.ImageData === 'undefined') {
+      globalScope.ImageData = class ImageData {};
+    }
+
+    if (typeof globalScope.Path2D === 'undefined') {
+      globalScope.Path2D = class Path2D {};
+    }
   }
 
   private guessMimeType(filename: string): string {
